@@ -78,8 +78,81 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 /// TAB 1: The Log Screen
-class LogScreen extends StatelessWidget {
+/// Manages the state and user inputs for logging a daily weight entry.
+class LogScreen extends StatefulWidget {
   const LogScreen({super.key});
+
+  @override
+  State<LogScreen> createState() => _LogScreenState();
+}
+
+class _LogScreenState extends State<LogScreen> {
+  // Controller reads the text entered into the weight text field
+  final TextEditingController _weightController = TextEditingController();
+
+  // State variable stores the currently selected date, defaulting to today
+  DateTime _selectedDate = DateTime.now();
+
+  /// Displays a calendar dialog and updates the state with the chosen date.
+  Future<void> _pickDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(), // Prevents selecting future dates
+    );
+
+    if (picked != null && picked != _selectedDate) {
+      // Triggers a UI rebuild to show the newly selected date
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  /// Validates the input text and prepares the weight data for database insertion.
+  void _saveWeight() {
+    final String weightText = _weightController.text;
+
+    if (weightText.isEmpty) {
+      // Shows an error banner if the field is empty
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid weight.')),
+      );
+      return;
+    }
+
+    final double? parsedWeight = double.tryParse(weightText);
+
+    if (parsedWeight == null) {
+      // Shows an error banner if the input is not a valid number
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid format. Use numbers only (e.g., 75.5).')),
+      );
+      return;
+    }
+
+    // Prints the validated data to the debug console (Database logic goes here later)
+    print('Ready to save to SQLite: Date: ${_selectedDate.toIso8601String()}, Weight: $parsedWeight kg');
+
+    // Shows a success message to the user
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Saved $parsedWeight kg for ${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'),
+        backgroundColor: Colors.green,
+      ),
+    );
+
+    // Clears the input field after successful submission
+    _weightController.clear();
+  }
+
+  // Cleans up the controller from memory when the screen is destroyed
+  @override
+  void dispose() {
+    _weightController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -93,29 +166,32 @@ class LogScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Date Selector Placeholder
+            // Date Selector Button
             OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: () => _pickDate(context),
               icon: const Icon(Icons.calendar_today),
-              label: const Text('Today, 19 Apr'),
+              label: Text('Date: ${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
               ),
             ),
             const SizedBox(height: 24),
-            // Weight Input
-            const TextField(
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
+
+            // Weight Input Field
+            TextField(
+              controller: _weightController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 labelText: 'Enter weight (e.g., 75.5)',
                 suffixText: 'kg',
               ),
             ),
             const SizedBox(height: 24),
+
             // Save Button
             ElevatedButton(
-              onPressed: () {},
+              onPressed: _saveWeight,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.secondary,
                 foregroundColor: Colors.white,
