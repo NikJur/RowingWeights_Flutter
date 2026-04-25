@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'database_helper.dart';
 
 void main() {
   runApp(const RowingWeightsApp());
@@ -207,8 +209,55 @@ class _LogScreenState extends State<LogScreen> {
 }
 
 /// TAB 2: The History Screen
-class HistoryScreen extends StatelessWidget {
+/// Displays the historical weight data on an interactive line chart.
+class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
+
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _weightData = [];
+  List<FlSpot> _chartSpots = [];
+  double _minY = 0;
+  double _maxY = 100;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshData();
+  }
+
+  /// Fetches data from SQLite and calculates the chart boundaries.
+  Future<void> _refreshData() async {
+    final data = await DatabaseHelper.instance.fetchAllWeights();
+
+    List<FlSpot> spots = [];
+    double currentMinY = 1000; // Arbitrary high start for calculation
+    double currentMaxY = 0;
+
+    for (int i = 0; i < data.length; i++) {
+      final double weight = data[i]['weight'];
+
+      // Calculate min and max weights for chart padding
+      if (weight < currentMinY) currentMinY = weight;
+      if (weight > currentMaxY) currentMaxY = weight;
+
+      // X is the index (time progression), Y is the weight
+      spots.add(FlSpot(i.toDouble(), weight));
+    }
+
+    setState(() {
+      _weightData = data;
+      _chartSpots = spots;
+      // Add a 5kg buffer to the top and bottom of the chart for visual aesthetics
+      _minY = currentMinY == 1000 ? 0 : currentMinY - 5;
+      _maxY = currentMaxY == 0 ? 100 : currentMaxY + 5;
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -222,7 +271,6 @@ class HistoryScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Future-proofing: Team Average Dashboard Card
             Card(
               color: const Color(0xFFF5F5F5),
               child: Padding(
@@ -230,20 +278,19 @@ class HistoryScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     Text(
-                      'Team Average',
+                      'Total Entries Logged',
                       style: TextStyle(fontSize: 16, color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '-- kg', // Placeholder for team calculation
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                    Text(
+                      '${_weightData.length}',
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 16),
-            // Time Toggle Buttons Placeholder
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -254,15 +301,57 @@ class HistoryScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            // Chart Area Placeholder
             Expanded(
               child: Container(
+                padding: const EdgeInsets.only(right: 18.0, top: 24.0, bottom: 12.0),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey.shade300),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Center(
-                  child: Text('Chart will render here'),
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _weightData.isEmpty
+                    ? const Center(child: Text('No weights logged yet. Go to the Log tab!'))
+                    : LineChart(
+                  LineChartData(
+                    minY: _minY,
+                    maxY: _maxY,
+                    gridData: const FlGridData(show: true, drawVerticalLine: false),
+                    titlesData: FlTitlesData(
+                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 22,
+                          getTitlesWidget: (value, meta) {
+                            // Only show labels for actual data points, not intermediate grid lines
+                            if (value % 1 != 0 || value >= _weightData.length) return const Text('');
+
+                            // Extract the date string and format it to DD/MM
+                            String fullDate = _weightData[value.toInt()]['date'];
+                            DateTime parsedDate = DateTime.parse(fullDate);
+                            return Text('${parsedDate.day}/${parsedDate.month}', style: const TextStyle(fontSize: 10));
+                          },
+                        ),
+                      ),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: _chartSpots,
+                        isCurved: true,
+                        color: Theme.of(context).colorScheme.secondary, // CoxOrb Orange
+                        barWidth: 4,
+                        isStrokeCapRound: true,
+                        dotData: const FlDotData(show: true), // Shows points on the line
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: Theme.of(context).colorScheme.secondary.withOpacity(0.2), // Faded orange fill
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
