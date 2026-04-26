@@ -135,7 +135,7 @@ class _LogScreenState extends State<LogScreen> {
     }
 
     // Prints the validated data to the debug console (Database logic goes here later)
-    print('Ready to save to SQLite: Date: ${_selectedDate.toIso8601String()}, Weight: $parsedWeight kg');
+    debugPrint('Ready to save to SQLite: Date: ${_selectedDate.toIso8601String()}, Weight: $parsedWeight kg');
 
     // Shows a success message to the user
     ScaffoldMessenger.of(context).showSnackBar(
@@ -230,33 +230,113 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _refreshData();
   }
 
-  /// Fetches data from SQLite and calculates the chart boundaries.
+  /// Fetches data from SQLite and recalculates the chart boundaries.
   Future<void> _refreshData() async {
     final data = await DatabaseHelper.instance.fetchAllWeights();
 
     List<FlSpot> spots = [];
-    double currentMinY = 1000; // Arbitrary high start for calculation
+    double currentMinY = 1000;
     double currentMaxY = 0;
 
     for (int i = 0; i < data.length; i++) {
       final double weight = data[i]['weight'];
 
-      // Calculate min and max weights for chart padding
       if (weight < currentMinY) currentMinY = weight;
       if (weight > currentMaxY) currentMaxY = weight;
 
-      // X is the index (time progression), Y is the weight
       spots.add(FlSpot(i.toDouble(), weight));
     }
 
     setState(() {
       _weightData = data;
       _chartSpots = spots;
-      // Add a 5kg buffer to the top and bottom of the chart for visual aesthetics
       _minY = currentMinY == 1000 ? 0 : currentMinY - 5;
       _maxY = currentMaxY == 0 ? 100 : currentMaxY + 5;
       _isLoading = false;
     });
+  }
+
+  /// Prompts the user to confirm deletion, then removes the data from SQLite.
+  Future<void> _confirmDelete(int id, double weight) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Entry?'),
+          content: Text('Are you sure you want to delete the entry for $weight kg?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true) {
+      await DatabaseHelper.instance.deleteWeight(id);
+      _refreshData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Entry deleted.'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  /// Displays a dialog to modify or delete the selected data point.
+  Future<void> _showEditDialog(Map<String, dynamic> item) async {
+    final TextEditingController editController = TextEditingController(text: item['weight'].toString());
+    final DateTime date = DateTime.parse(item['date']);
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Edit Entry: ${date.day}/${date.month}'),
+          content: TextField(
+            controller: editController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              suffixText: 'kg',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _confirmDelete(item['id'], item['weight']);
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final double? newWeight = double.tryParse(editController.text);
+                if (newWeight != null) {
+                  await DatabaseHelper.instance.updateWeight(item['id'], newWeight);
+                  if (mounted) Navigator.of(context).pop();
+                  _refreshData();
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -325,10 +405,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           showTitles: true,
                           reservedSize: 22,
                           getTitlesWidget: (value, meta) {
-                            // Only show labels for actual data points, not intermediate grid lines
                             if (value % 1 != 0 || value >= _weightData.length) return const Text('');
-
-                            // Extract the date string and format it to DD/MM
                             String fullDate = _weightData[value.toInt()]['date'];
                             DateTime parsedDate = DateTime.parse(fullDate);
                             return Text('${parsedDate.day}/${parsedDate.month}', style: const TextStyle(fontSize: 10));
@@ -337,17 +414,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                     ),
                     borderData: FlBorderData(show: false),
+                    // Enables interactive touch events on the chart nodes
+                    lineTouchData: LineTouchData(
+                      touchCallback: (FlTouchEvent event, LineTouchResponse? touchResponse) {
+                        if (event is FlTapUpEvent && touchResponse != null && touchResponse.lineBarSpots != null) {
+                          final int spotIndex = touchResponse.lineBarSpots![0].spotIndex;
+                          final Map<String, dynamic> selectedEntry = _weightData[spotIndex];
+                          _showEditDialog(selectedEntry);
+                        }
+                      },
+                      handleBuiltInTouches: true,
+                    ),
                     lineBarsData: [
                       LineChartBarData(
                         spots: _chartSpots,
                         isCurved: true,
-                        color: Theme.of(context).colorScheme.secondary, // CoxOrb Orange
+                        color: Theme.of(context).colorScheme.secondary,
                         barWidth: 4,
                         isStrokeCapRound: true,
-                        dotData: const FlDotData(show: true), // Shows points on the line
+                        dotData: const FlDotData(show: true),
                         belowBarData: BarAreaData(
                           show: true,
-                          color: Theme.of(context).colorScheme.secondary.withOpacity(0.2), // Faded orange fill
+                          color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.2),
                         ),
                       ),
                     ],

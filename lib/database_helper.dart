@@ -51,4 +51,25 @@ class DatabaseHelper {
     final db = await instance.database;
     return await db.query('weight_logs', orderBy: 'date ASC');
   }
+
+  /// Deletes a specific weight record by its unique database ID.
+  Future<int> deleteWeight(int id) async {
+    final db = await instance.database;
+    return await db.delete(
+      'weight_logs',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Updates a specific weight record in the database.
+  Future<int> updateWeight(int id, double newWeight) async {
+    final db = await instance.database;
+    return await db.update(
+      'weight_logs',
+      {'weight': newWeight},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }
